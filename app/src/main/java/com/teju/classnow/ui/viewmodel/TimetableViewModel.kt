@@ -98,17 +98,28 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
             )
         }.stateIn(
             viewModelScope,
-            SharingStarted.Eagerly,
+            SharingStarted.WhileSubscribed(stopTimeoutMillis = 5000),
             ScheduleState(TimetableStatus.NO_CLASSES_TODAY)
         )
 
-        // Local clock tick (every second while ViewModel is active)
+        // Minute-boundary clock tick: aligns precisely to :00 seconds to eliminate per-second polling
         viewModelScope.launch {
             while (true) {
-                _currentTime.value = LocalTime.now()
-                delay(1000)
+                val now = LocalTime.now()
+                _currentTime.value = now
+                val millisUntilNextMinute = ((60 - now.second) * 1000L - (now.nano / 1_000_000L))
+                    .coerceIn(500L, 60_000L)
+                delay(millisUntilNextMinute)
             }
         }
+    }
+
+    /**
+     * Immediately refreshes the clock to current time.
+     * Called on screen resumption so the UI never shows stale data after returning to foreground.
+     */
+    fun refreshCurrentTime() {
+        _currentTime.value = LocalTime.now()
     }
 
     fun toggleLiveNotification(enabled: Boolean) {

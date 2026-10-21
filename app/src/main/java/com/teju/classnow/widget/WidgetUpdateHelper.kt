@@ -25,12 +25,16 @@ object WidgetUpdateHelper {
         try {
             val manager = GlanceAppWidgetManager(appContext)
             val glanceIds = manager.getGlanceIds(ClassNowWidget::class.java)
-            for (glanceId in glanceIds) {
-                try {
-                    ClassNowWidget().update(appContext, glanceId)
-                } catch (e: Exception) {
-                    e.printStackTrace()
+            if (glanceIds.isNotEmpty()) {
+                for (glanceId in glanceIds) {
+                    try {
+                        ClassNowWidget().update(appContext, glanceId)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
+            } else {
+                ClassNowWidget().updateAll(appContext)
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -58,7 +62,8 @@ object WidgetUpdateHelper {
                 manualOverridePeriodKey = manualOverridePeriod
             )
 
-            // 1. Update Glance Home Screen Widget immediately
+            // 1. Notify reactive widget session and update Glance Home Screen Widget immediately
+            settingsRepository.notifyWidgetRefresh()
             updateGlanceWidgets(appContext)
 
             // 2. Apply Smart Silent Mode automation
@@ -88,6 +93,12 @@ object WidgetUpdateHelper {
      * Does not recalculate sound automation or reschedule alarms.
      */
     suspend fun updateWidgetUiOnly(context: Context) {
+        try {
+            val settingsRepository = SettingsRepository(context.applicationContext)
+            settingsRepository.notifyWidgetRefresh()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         updateGlanceWidgets(context)
     }
 }

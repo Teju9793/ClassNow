@@ -17,6 +17,10 @@ data class WidgetColors(
     val cardBackground: ColorProvider,
     val primaryCyan: ColorProvider,
     val cyanAccent: ColorProvider,
+    val currentAccent: ColorProvider = ColorProvider(if (isDark) Color(0xFFFF6584) else Color(0xFFE11D48)), // Coral Pink
+    val nextAccent: ColorProvider = ColorProvider(if (isDark) Color(0xFF00E5FF) else Color(0xFF0284C7)),    // Neon Aqua
+    val currentCardBg: ColorProvider = ColorProvider(if (isDark) Color(0xFF1F171B) else Color(0xFFFFF1F2)), // Subtle coral dark
+    val nextCardBg: ColorProvider = ColorProvider(if (isDark) Color(0xFF131E26) else Color(0xFFF0F9FF)),    // Subtle aqua dark
     val textPrimary: ColorProvider,
     val textSecondary: ColorProvider,
     val progressTrack: ColorProvider,
@@ -26,6 +30,8 @@ data class WidgetColors(
     val silentOnContent: ColorProvider,
     val silentOffBackground: ColorProvider,
     val silentOffContent: ColorProvider,
+    val warningBackground: ColorProvider,
+    val warningContent: ColorProvider,
     val dividerColor: ColorProvider
 )
 
@@ -57,6 +63,10 @@ object WidgetTheme {
                     cardBackground = ColorProvider(dyn.surfaceContainer),
                     primaryCyan = ColorProvider(dyn.primary),
                     cyanAccent = ColorProvider(dyn.secondary),
+                    currentAccent = ColorProvider(if (isDark) Color(0xFFFF6584) else Color(0xFFE11D48)),
+                    nextAccent = ColorProvider(if (isDark) Color(0xFF00E5FF) else Color(0xFF0284C7)),
+                    currentCardBg = ColorProvider(if (isDark) Color(0xFF1F171B) else Color(0xFFFFF1F2)),
+                    nextCardBg = ColorProvider(if (isDark) Color(0xFF131E26) else Color(0xFFF0F9FF)),
                     textPrimary = ColorProvider(dyn.onSurface),
                     textSecondary = ColorProvider(dyn.onSurfaceVariant),
                     progressTrack = ColorProvider(dyn.surfaceVariant),
@@ -66,6 +76,8 @@ object WidgetTheme {
                     silentOnContent = ColorProvider(dyn.onPrimaryContainer),
                     silentOffBackground = ColorProvider(dyn.surfaceVariant),
                     silentOffContent = ColorProvider(dyn.onSurfaceVariant),
+                    warningBackground = ColorProvider(dyn.errorContainer),
+                    warningContent = ColorProvider(dyn.onErrorContainer),
                     dividerColor = ColorProvider(dyn.outlineVariant)
                 )
             } catch (e: Throwable) {
@@ -76,22 +88,28 @@ object WidgetTheme {
         return if (isDark) {
             WidgetColors(
                 isDark = true,
-                background = ColorProvider(Color(0xFF0F172A)),       // Slate Navy 900
-                surface = ColorProvider(Color(0xFF1E293B)),          // Slate Navy 800
-                surfaceVariant = ColorProvider(Color(0xFF273549)),   // Slate Navy 700
-                cardBackground = ColorProvider(Color(0xFF182234)),   // Dark card
-                primaryCyan = ColorProvider(Color(0xFF00B4D8)),      // Clear Aqua / Cyan
-                cyanAccent = ColorProvider(Color(0xFF90E0EF)),       // Light Cyan
+                background = ColorProvider(Color(0xFF121214)),       // Deep black/charcoal
+                surface = ColorProvider(Color(0xFF1E1E22)),          // Elevated dark surface
+                surfaceVariant = ColorProvider(Color(0xFF28282E)),   // Surface variant
+                cardBackground = ColorProvider(Color(0xFF1A1A1E)),   // Dark card base
+                primaryCyan = ColorProvider(Color(0xFF00E5FF)),      // Neon Aqua
+                cyanAccent = ColorProvider(Color(0xFF80EFFF)),       // Light Aqua
+                currentAccent = ColorProvider(Color(0xFFFF6584)),    // Vibrant Coral Pink
+                nextAccent = ColorProvider(Color(0xFF00E5FF)),       // Crisp Neon Aqua
+                currentCardBg = ColorProvider(Color(0xFF1F171B)),    // Subtle coral dark container
+                nextCardBg = ColorProvider(Color(0xFF131E26)),       // Subtle aqua dark container
                 textPrimary = ColorProvider(Color(0xFFF8FAFC)),      // Crisp white
                 textSecondary = ColorProvider(Color(0xFF94A3B8)),    // Muted slate
-                progressTrack = ColorProvider(Color(0xFF334155)),    // Dark progress track
-                buttonBackground = ColorProvider(Color(0xFF1E293B)), // Button surface
-                buttonContent = ColorProvider(Color(0xFF90E0EF)),    // Button icon/text
+                progressTrack = ColorProvider(Color(0xFF33333E)),    // Dark progress track
+                buttonBackground = ColorProvider(Color(0xFF222228)), // Button surface
+                buttonContent = ColorProvider(Color(0xFF00E5FF)),    // Button icon/text
                 silentOnBackground = ColorProvider(Color(0xFF004D61)),// Deep aqua container
                 silentOnContent = ColorProvider(Color(0xFFBAE6FD)),  // Crisp light aqua text
-                silentOffBackground = ColorProvider(Color(0xFF2A3447)),// Neutral dark
+                silentOffBackground = ColorProvider(Color(0xFF26262E)),// Neutral dark
                 silentOffContent = ColorProvider(Color(0xFF94A3B8)), // Muted text
-                dividerColor = ColorProvider(Color(0xFF334155))
+                warningBackground = ColorProvider(Color(0xFF78350F)),// Dark amber container
+                warningContent = ColorProvider(Color(0xFFFDE68A)),   // Light amber text
+                dividerColor = ColorProvider(Color(0xFF33333E))
             )
         } else {
             WidgetColors(
@@ -100,17 +118,23 @@ object WidgetTheme {
                 surface = ColorProvider(Color(0xFFFFFFFF)),          // White surface
                 surfaceVariant = ColorProvider(Color(0xFFE2E8F0)),   // Soft gray variant
                 cardBackground = ColorProvider(Color(0xFFF1F5F9)),   // Light card surface
-                primaryCyan = ColorProvider(Color(0xFF00687A)),      // Deep Cyan for contrast
-                cyanAccent = ColorProvider(Color(0xFF00838F)),       // Accessible Cyan
+                primaryCyan = ColorProvider(Color(0xFF0284C7)),      // Ocean Cyan
+                cyanAccent = ColorProvider(Color(0xFF0369A1)),       // Accessible Cyan
+                currentAccent = ColorProvider(Color(0xFFE11D48)),    // Vibrant Coral Rose/Pink
+                nextAccent = ColorProvider(Color(0xFF0284C7)),       // Deep Aqua
+                currentCardBg = ColorProvider(Color(0xFFFFF1F2)),    // Soft coral tint
+                nextCardBg = ColorProvider(Color(0xFFF0F9FF)),       // Soft aqua tint
                 textPrimary = ColorProvider(Color(0xFF0F172A)),      // Dark charcoal
                 textSecondary = ColorProvider(Color(0xFF475569)),    // Slate gray
                 progressTrack = ColorProvider(Color(0xFFE2E8F0)),    // Soft light track
                 buttonBackground = ColorProvider(Color(0xFFE2E8F0)), // Light button surface
-                buttonContent = ColorProvider(Color(0xFF00687A)),    // Deep cyan icon/text
+                buttonContent = ColorProvider(Color(0xFF0284C7)),    // Deep cyan icon/text
                 silentOnBackground = ColorProvider(Color(0xFFAAF0FF)),// Soft aqua container
                 silentOnContent = ColorProvider(Color(0xFF001F26)),  // Deep dark aqua
                 silentOffBackground = ColorProvider(Color(0xFFE2E8F0)),// Soft neutral
                 silentOffContent = ColorProvider(Color(0xFF475569)), // Slate gray
+                warningBackground = ColorProvider(Color(0xFFFEF08A)),// Soft amber container
+                warningContent = ColorProvider(Color(0xFF713F12)),   // Deep amber text
                 dividerColor = ColorProvider(Color(0xFFE2E8F0))
             )
         }

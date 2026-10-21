@@ -29,11 +29,15 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.launch
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -53,6 +57,10 @@ import com.teju.classnow.util.CsvHelper
 import com.teju.classnow.util.CustomScheduleHelper
 import com.teju.classnow.util.TimeInputHelper
 import com.teju.classnow.util.TimeUtils
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -60,13 +68,26 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TimetableScreen(viewModel: TimetableViewModel, onBack: () -> Unit) {
-    val selectedDay by viewModel.selectedDay.collectAsState()
-    val entries by viewModel.currentDayEntries.collectAsState()
-    val allEntriesList by viewModel.allEntries.collectAsState()
-    val importPreview by viewModel.importPreview.collectAsState()
-    val scheduleState by viewModel.scheduleState.collectAsState()
-    val currentTime by viewModel.currentTime.collectAsState()
+    val selectedDay by viewModel.selectedDay.collectAsStateWithLifecycle()
+    val entries by viewModel.currentDayEntries.collectAsStateWithLifecycle()
+    val allEntriesList by viewModel.allEntries.collectAsStateWithLifecycle()
+    val importPreview by viewModel.importPreview.collectAsStateWithLifecycle()
+    val scheduleState by viewModel.scheduleState.collectAsStateWithLifecycle()
+    val currentTime by viewModel.currentTime.collectAsStateWithLifecycle()
     val currentDayName = remember(currentTime) { viewModel.getCurrentDayName() }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshCurrentTime()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     val context = LocalContext.current
     var showAddDialog by remember { mutableStateOf(false) }
@@ -239,30 +260,34 @@ fun TimetableScreen(viewModel: TimetableViewModel, onBack: () -> Unit) {
             onDismiss = { showAddDialog = false },
             onSave = { subject, start, end, faculty, day, silentRule, customSchedule ->
                 viewModel.addEntry(subject, start, end, faculty, day, silentRule, customSchedule)
+                viewModel.selectDay(day)
             }
         )
     }
 
     editingEntry?.let { entry ->
-        AddEditClassDialog(
-            selectedDay = entry.dayOfWeek,
-            existingEntry = entry,
-            allEntries = allEntriesList,
-            onDismiss = { editingEntry = null },
-            onSave = { subject, start, end, faculty, day, silentRule, customSchedule ->
-                viewModel.updateEntry(
-                    entry.copy(
-                        subject = subject,
-                        startTime = start,
-                        endTime = end,
-                        faculty = faculty,
-                        dayOfWeek = day,
-                        silentModeRule = silentRule,
-                        customSilentSchedule = customSchedule
+        key(entry.id) {
+            AddEditClassDialog(
+                selectedDay = entry.dayOfWeek,
+                existingEntry = entry,
+                allEntries = allEntriesList,
+                onDismiss = { editingEntry = null },
+                onSave = { subject, start, end, faculty, day, silentRule, customSchedule ->
+                    viewModel.updateEntry(
+                        entry.copy(
+                            subject = subject,
+                            startTime = start,
+                            endTime = end,
+                            faculty = faculty,
+                            dayOfWeek = day,
+                            silentModeRule = silentRule,
+                            customSilentSchedule = customSchedule
+                        )
                     )
-                )
-            }
-        )
+                    viewModel.selectDay(day)
+                }
+            )
+        }
     }
 
     entryToDelete?.let { entry ->
@@ -543,14 +568,16 @@ fun TimeInputField(
     isPm: Boolean,
     onPmChange: (Boolean) -> Unit,
     onOpenClockPicker: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isError: Boolean = false,
+    errorMessage: String? = null
 ) {
     Column(modifier = modifier) {
         Text(
             text = title,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(4.dp))
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
@@ -572,6 +599,7 @@ fun TimeInputField(
                             },
                             placeholder = { Text("09", color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), textAlign = TextAlign.Center) },
                             singleLine = true,
+                            isError = isError,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             textStyle = MaterialTheme.typography.titleMedium.copy(textAlign = TextAlign.Center),
                             modifier = Modifier
@@ -599,6 +627,7 @@ fun TimeInputField(
                             },
                             placeholder = { Text("00", color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), textAlign = TextAlign.Center) },
                             singleLine = true,
+                            isError = isError,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             textStyle = MaterialTheme.typography.titleMedium.copy(textAlign = TextAlign.Center),
                             modifier = Modifier
@@ -675,6 +704,7 @@ fun TimeInputField(
                         },
                         placeholder = { Text("09", color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), textAlign = TextAlign.Center) },
                         singleLine = true,
+                        isError = isError,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         textStyle = MaterialTheme.typography.titleMedium.copy(textAlign = TextAlign.Center),
                         modifier = Modifier
@@ -702,6 +732,7 @@ fun TimeInputField(
                         },
                         placeholder = { Text("00", color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), textAlign = TextAlign.Center) },
                         singleLine = true,
+                        isError = isError,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         textStyle = MaterialTheme.typography.titleMedium.copy(textAlign = TextAlign.Center),
                         modifier = Modifier
@@ -763,6 +794,26 @@ fun TimeInputField(
                 }
             }
         }
+
+        if (isError && !errorMessage.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(14.dp)
+                )
+                Text(
+                    text = errorMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        }
     }
 }
 
@@ -786,29 +837,34 @@ fun AddEditClassDialog(
     onDismiss: () -> Unit,
     onSave: (String, String, String, String?, String, String, String?) -> Unit
 ) {
-    var subject by remember { mutableStateOf(existingEntry?.subject ?: "") }
-    var faculty by remember { mutableStateOf(existingEntry?.faculty ?: "") }
-    var dayChoice by remember { mutableStateOf(existingEntry?.dayOfWeek ?: selectedDay) }
-    var silentRule by remember { mutableStateOf(existingEntry?.silentModeRule ?: TimetableEntry.RULE_DEFAULT) }
-    var errorMessage by remember { mutableStateOf("") }
+    var subject by remember(existingEntry) { mutableStateOf(existingEntry?.subject ?: "") }
+    var faculty by remember(existingEntry) { mutableStateOf(existingEntry?.faculty ?: "") }
+    var dayChoice by remember(existingEntry, selectedDay) { mutableStateOf(existingEntry?.dayOfWeek ?: selectedDay) }
+    var silentRule by remember(existingEntry) { mutableStateOf(existingEntry?.silentModeRule ?: TimetableEntry.RULE_DEFAULT) }
+    var subjectError by remember(existingEntry) { mutableStateOf<String?>(null) }
+    var startTimeError by remember(existingEntry) { mutableStateOf<String?>(null) }
+    var endTimeError by remember(existingEntry) { mutableStateOf<String?>(null) }
+    var errorMessage by remember(existingEntry) { mutableStateOf("") }
+    val subjectFocusRequester = remember { FocusRequester() }
+    val coroutineScope = rememberCoroutineScope()
 
     // Start time 12-hour fields
     val initialStart = remember(existingEntry) {
         if (existingEntry != null) TimeInputHelper.from24Hour(existingEntry.startTime)
         else TimeInputHelper.Time12("09", "00", false)
     }
-    var startHour by remember { mutableStateOf(initialStart.hour) }
-    var startMinute by remember { mutableStateOf(initialStart.minute) }
-    var startIsPm by remember { mutableStateOf(initialStart.isPm) }
+    var startHour by remember(existingEntry) { mutableStateOf(initialStart.hour) }
+    var startMinute by remember(existingEntry) { mutableStateOf(initialStart.minute) }
+    var startIsPm by remember(existingEntry) { mutableStateOf(initialStart.isPm) }
 
     // End time 12-hour fields
     val initialEnd = remember(existingEntry) {
         if (existingEntry != null) TimeInputHelper.from24Hour(existingEntry.endTime)
         else TimeInputHelper.Time12("10", "00", false)
     }
-    var endHour by remember { mutableStateOf(initialEnd.hour) }
-    var endMinute by remember { mutableStateOf(initialEnd.minute) }
-    var endIsPm by remember { mutableStateOf(initialEnd.isPm) }
+    var endHour by remember(existingEntry) { mutableStateOf(initialEnd.hour) }
+    var endMinute by remember(existingEntry) { mutableStateOf(initialEnd.minute) }
+    var endIsPm by remember(existingEntry) { mutableStateOf(initialEnd.isPm) }
 
     var showStartPicker by remember { mutableStateOf(false) }
     var showEndPicker by remember { mutableStateOf(false) }
@@ -868,9 +924,35 @@ fun AddEditClassDialog(
             ) {
                 OutlinedTextField(
                     value = subject,
-                    onValueChange = { subject = it },
-                    label = { Text("Subject Name") },
-                    modifier = Modifier.fillMaxWidth(),
+                    onValueChange = {
+                        subject = it
+                        if (subjectError != null && it.trim().isNotBlank()) {
+                            subjectError = null
+                        }
+                    },
+                    label = { Text("Subject Name *") },
+                    isError = subjectError != null,
+                    supportingText = {
+                        if (subjectError != null) {
+                            Text(
+                                text = subjectError!!,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    },
+                    trailingIcon = {
+                        if (subjectError != null) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "Required field error",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(subjectFocusRequester),
                     singleLine = true
                 )
 
@@ -899,26 +981,51 @@ fun AddEditClassDialog(
 
                 // Start Time Field (Editable 12-hr with AM/PM & clock picker)
                 TimeInputField(
-                    title = "Start Time",
+                    title = "Start Time *",
                     hour = startHour,
-                    onHourChange = { startHour = it },
+                    onHourChange = {
+                        startHour = it
+                        if (startTimeError != null) startTimeError = null
+                        if (endTimeError != null && endTimeError?.contains("after start") == true) endTimeError = null
+                    },
                     minute = startMinute,
-                    onMinuteChange = { startMinute = it },
+                    onMinuteChange = {
+                        startMinute = it
+                        if (startTimeError != null) startTimeError = null
+                        if (endTimeError != null && endTimeError?.contains("after start") == true) endTimeError = null
+                    },
                     isPm = startIsPm,
-                    onPmChange = { startIsPm = it },
-                    onOpenClockPicker = { showStartPicker = true }
+                    onPmChange = {
+                        startIsPm = it
+                        if (startTimeError != null) startTimeError = null
+                        if (endTimeError != null && endTimeError?.contains("after start") == true) endTimeError = null
+                    },
+                    onOpenClockPicker = { showStartPicker = true },
+                    isError = startTimeError != null,
+                    errorMessage = startTimeError
                 )
 
                 // End Time Field (Editable 12-hr with AM/PM & clock picker)
                 TimeInputField(
-                    title = "End Time",
+                    title = "End Time *",
                     hour = endHour,
-                    onHourChange = { endHour = it },
+                    onHourChange = {
+                        endHour = it
+                        if (endTimeError != null) endTimeError = null
+                    },
                     minute = endMinute,
-                    onMinuteChange = { endMinute = it },
+                    onMinuteChange = {
+                        endMinute = it
+                        if (endTimeError != null) endTimeError = null
+                    },
                     isPm = endIsPm,
-                    onPmChange = { endIsPm = it },
-                    onOpenClockPicker = { showEndPicker = true }
+                    onPmChange = {
+                        endIsPm = it
+                        if (endTimeError != null) endTimeError = null
+                    },
+                    onOpenClockPicker = { showEndPicker = true },
+                    isError = endTimeError != null,
+                    errorMessage = endTimeError
                 )
 
                 OutlinedTextField(
@@ -1193,33 +1300,61 @@ fun AddEditClassDialog(
         confirmButton = {
             Button(
                 onClick = {
+                    // 1. Validate subject (Required field)
                     if (subject.trim().isBlank()) {
-                        errorMessage = "Please enter a subject name."
+                        subjectError = "Subject name cannot be blank."
+                        coroutineScope.launch {
+                            scrollState.animateScrollTo(0)
+                            subjectFocusRequester.requestFocus()
+                        }
                         return@Button
-                    }
-                    val start24 = TimeInputHelper.to24Hour(startHour, startMinute, startIsPm)
-                    if (start24 == null) {
-                        errorMessage = "Please enter a valid Start Time (Hour 1-12, Minute 00-59)."
-                        return@Button
-                    }
-                    val end24 = TimeInputHelper.to24Hour(endHour, endMinute, endIsPm)
-                    if (end24 == null) {
-                        errorMessage = "Please enter a valid End Time (Hour 1-12, Minute 00-59)."
-                        return@Button
+                    } else {
+                        subjectError = null
                     }
 
+                    // 2. Validate start time
+                    val start24 = TimeInputHelper.to24Hour(startHour, startMinute, startIsPm)
+                    if (startHour.isBlank() || startMinute.isBlank() || start24 == null) {
+                        startTimeError = "Enter a valid start time (Hour 1-12, Minute 00-59)."
+                        coroutineScope.launch {
+                            scrollState.animateScrollTo(60)
+                        }
+                        return@Button
+                    } else {
+                        startTimeError = null
+                    }
+
+                    // 3. Validate end time
+                    val end24 = TimeInputHelper.to24Hour(endHour, endMinute, endIsPm)
+                    if (endHour.isBlank() || endMinute.isBlank() || end24 == null) {
+                        endTimeError = "Enter a valid end time (Hour 1-12, Minute 00-59)."
+                        coroutineScope.launch {
+                            scrollState.animateScrollTo(140)
+                        }
+                        return@Button
+                    } else {
+                        endTimeError = null
+                    }
+
+                    // 4. Validate end follows start
                     val startL = try { LocalTime.parse(start24) } catch (e: Exception) { null }
                     val endL = try { LocalTime.parse(end24) } catch (e: Exception) { null }
                     if (startL == null || endL == null) {
-                        errorMessage = "Invalid time format."
+                        endTimeError = "Invalid time format."
+                        coroutineScope.launch {
+                            scrollState.animateScrollTo(140)
+                        }
                         return@Button
                     }
                     if (!endL.isAfter(startL)) {
-                        errorMessage = "End time must be after start time."
+                        endTimeError = "End time must be after start time."
+                        coroutineScope.launch {
+                            scrollState.animateScrollTo(140)
+                        }
                         return@Button
                     }
 
-                    // Overlap/Conflict Check
+                    // 5. Overlap/Conflict Check
                     val overlap = allEntries.filter { it.dayOfWeek == dayChoice }.find { existing ->
                         if (existingEntry != null && existing.id == existingEntry.id) return@find false
                         val exStart = LocalTime.parse(existing.startTime)
@@ -1228,7 +1363,10 @@ fun AddEditClassDialog(
                     }
 
                     if (overlap != null) {
-                        errorMessage = "Time conflicts with '${overlap.subject}' on $dayChoice."
+                        endTimeError = "Time conflicts with '${overlap.subject}' on $dayChoice."
+                        coroutineScope.launch {
+                            scrollState.animateScrollTo(140)
+                        }
                         return@Button
                     }
 
@@ -1241,6 +1379,9 @@ fun AddEditClassDialog(
                             val e24 = TimeInputHelper.to24Hour(it.endHour, it.endMinute, it.endIsPm)
                             if (s24 == null || e24 == null) {
                                 errorMessage = "Please enter valid times for Interval #${i + 1}."
+                                coroutineScope.launch {
+                                    scrollState.animateScrollTo(scrollState.maxValue)
+                                }
                                 return@Button
                             }
                             intervalsList.add(CustomSoundInterval(startTime = s24, endTime = e24, mode = it.mode))
@@ -1248,6 +1389,9 @@ fun AddEditClassDialog(
                         val validationError = CustomScheduleHelper.validate(intervalsList, start24, end24)
                         if (validationError != null) {
                             errorMessage = validationError
+                            coroutineScope.launch {
+                                scrollState.animateScrollTo(scrollState.maxValue)
+                            }
                             return@Button
                         }
                         val schedule = CustomClassSchedule(
@@ -1283,6 +1427,8 @@ fun AddEditClassDialog(
                 startHour = time12.hour
                 startMinute = time12.minute
                 startIsPm = time12.isPm
+                if (startTimeError != null) startTimeError = null
+                if (endTimeError != null && endTimeError?.contains("after start") == true) endTimeError = null
             }
         )
     }
@@ -1303,6 +1449,7 @@ fun AddEditClassDialog(
                 endHour = time12.hour
                 endMinute = time12.minute
                 endIsPm = time12.isPm
+                if (endTimeError != null) endTimeError = null
             }
         )
     }
@@ -1336,29 +1483,31 @@ fun M3TimePickerDialog(
     onDismiss: () -> Unit,
     onTimeSelected: (Int, Int) -> Unit
 ) {
-    val state = rememberTimePickerState(initialHour = initialHour, initialMinute = initialMinute, is24Hour = false)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            Button(onClick = {
-                onTimeSelected(state.hour, state.minute)
-                onDismiss()
-            }) {
-                Text("OK")
+    key(initialHour, initialMinute) {
+        val state = rememberTimePickerState(initialHour = initialHour, initialMinute = initialMinute, is24Hour = false)
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            confirmButton = {
+                Button(onClick = {
+                    onTimeSelected(state.hour, state.minute)
+                    onDismiss()
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+            },
+            title = { Text("Select Time") },
+            text = {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    TimePicker(state = state)
+                }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        },
-        title = { Text("Select Time") },
-        text = {
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                TimePicker(state = state)
-            }
-        }
-    )
+        )
+    }
 }
 
 @Composable

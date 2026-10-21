@@ -14,37 +14,49 @@ import java.time.ZoneId
 
 object WidgetAlarmScheduler {
 
-    private const val REQUEST_CODE = 4412
+    // Request code for essential timetable state transitions (class start/end, breaks)
+    const val REQUEST_CODE_BOUNDARY = 4412
+
+    // Request code for intermediate non-waking widget progress refreshes
+    const val REQUEST_CODE_PROGRESS = 4413
+
     const val ACTION_UPDATE_TIMETABLE = "com.teju.classnow.action.UPDATE_WIDGET"
 
-    // Interval for intermediate progress checkpoints during active classes
-    private const val PROGRESS_CHECKPOINT_MINUTES = 5L
+    // Interval for non-waking visual progress checkpoints during an ongoing class
+    const val PROGRESS_CHECKPOINT_MINUTES = 5L
 
     fun scheduleNextAlarm(context: Context, state: ScheduleState) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+
+        // 1. Schedule Essential Boundary Transition Alarm (P0: Smart Silent Mode & State Changes)
+        scheduleBoundaryAlarm(context, alarmManager, state)
+
+        // 2. Schedule Non-Waking Visual Progress Checkpoint (Battery-Safe: Does NOT wake from Doze)
+        scheduleProgressAlarm(context, alarmManager, state)
+    }
+
+    /**
+     * Schedules the exact waking alarm for timetable state transitions.
+     * Essential for Smart Silent Mode muting/unmuting at class start and end boundaries.
+     */
+    private fun scheduleBoundaryAlarm(context: Context, alarmManager: AlarmManager, state: ScheduleState) {
         val intent = Intent(context, ClassNowWidgetReceiver::class.java).apply {
             action = ACTION_UPDATE_TIMETABLE
         }
         val pendingIntent = PendingIntent.getBroadcast(
             context,
-            REQUEST_CODE,
+            REQUEST_CODE_BOUNDARY,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Cancel previous alarm to avoid duplicate triggers
-        alarmManager.cancel(pendingIntent)
-
-        val nextTriggerTime = calculateNextTriggerTime(state) ?: return
-        val now = LocalDateTime.now()
-        var targetDateTime = LocalDateTime.of(LocalDate.now(), nextTriggerTime)
-
-        // If the target time is earlier than now (e.g. crossing midnight), schedule for next day
-        if (!targetDateTime.isAfter(now)) {
-            targetDateTime = targetDateTime.plusDays(1)
+        val boundaryTime = state.nextTransitionLocalTime
+        if (boundaryTime == null) {
+            alarmManager.cancel(pendingIntent)
+            return
         }
 
-        val triggerAtMillis = targetDateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val triggerAtMillis = calculateEpochMillis(boundaryTime)
 
         try {
             val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -68,7 +80,6 @@ object WidgetAlarmScheduler {
                 }
             }
         } catch (e: SecurityException) {
-            // Graceful fallback if exact alarm permission was revoked
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
@@ -84,41 +95,59 @@ object WidgetAlarmScheduler {
     }
 
     /**
-     * Determines the next trigger time.
-     * When an active class has substantial time remaining, schedules an intermediate
-     * checkpoint every 5 minutes to keep widget progress and time fresh without battery drain.
+     * Schedules a non-waking checkpoint for visual progress updates during an active class.
+     * Uses AlarmManager.RTC (non-wakeup) so the device is NEVER pulled out of Doze/Deep Sleep
+     * while the phone is locked in a student's pocket.
      */
-    private fun calculateNextTriggerTime(state: ScheduleState): LocalTime? {
-        val boundary = state.nextTransitionLocalTime ?: return null
-        val now = LocalTime.now()
+    private fun scheduleProgressAlarm(context: Context, alarmManager: AlarmManager, state: ScheduleState) {
+        val intent = Intent(context, ClassNowWidgetReceiver::class.java).apply {
+            action = ACTION_UPDATE_TIMETABLE
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            REQUEST_CODE_PROGRESS,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
-        return when (state.status) {
-            TimetableStatus.CURRENT_CLASS -> {
-                // If more than 5 minutes remain in the class, schedule an intermediate checkpoint
-                if (state.remainingMinutes > PROGRESS_CHECKPOINT_MINUTES) {
-                    val checkpoint = now.plusMinutes(PROGRESS_CHECKPOINT_MINUTES)
-                    if (checkpoint.isBefore(boundary)) {
-                        checkpoint
-                    } else {
-                        boundary
-                    }
-                } else {
-                    boundary
+        // Only schedule progress ticks during an active class when more than 5 minutes remain
+        if (state.status == TimetableStatus.CURRENT_CLASS && state.remainingMinutes > PROGRESS_CHECKPOINT_MINUTES) {
+            val checkpointTime = LocalTime.now().plusMinutes(PROGRESS_CHECKPOINT_MINUTES)
+            val boundary = state.nextTransitionLocalTime
+
+            if (boundary == null || checkpointTime.isBefore(boundary)) {
+                val triggerAtMillis = calculateEpochMillis(checkpointTime)
+                try {
+                    // Non-waking: AlarmManager.RTC fires when awake or defers until next wake
+                    alarmManager.set(AlarmManager.RTC, triggerAtMillis, pendingIntent)
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-            }
-            TimetableStatus.BREAK,
-            TimetableStatus.LUNCH,
-            TimetableStatus.FREE_PERIOD,
-            TimetableStatus.BEFORE_CLASSES -> {
-                // Trigger right when next class starts
-                boundary
-            }
-            TimetableStatus.NO_MORE_CLASSES,
-            TimetableStatus.NO_CLASSES_TODAY -> {
-                // Refresh after midnight for the next day
-                boundary
+                return
             }
         }
+
+        // Cancel pending progress checkpoint if class ended or within 5 minutes of boundary
+        alarmManager.cancel(pendingIntent)
+    }
+
+    private fun calculateEpochMillis(time: LocalTime): Long {
+        val now = LocalDateTime.now()
+        var targetDateTime = LocalDateTime.of(LocalDate.now(), time)
+
+        // If target time is in the past:
+        // - If within 60 seconds (execution latency at boundary), trigger immediately (+100ms) rather than 24h later.
+        // - If more than 60 seconds (e.g. crossing midnight 00:01), schedule for tomorrow.
+        if (!targetDateTime.isAfter(now)) {
+            val diffSeconds = java.time.Duration.between(targetDateTime, now).seconds
+            if (diffSeconds > 60) {
+                targetDateTime = targetDateTime.plusDays(1)
+            } else {
+                return System.currentTimeMillis() + 100L
+            }
+        }
+
+        return targetDateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
     }
 
     fun cancelAllAlarms(context: Context) {
@@ -126,12 +155,21 @@ object WidgetAlarmScheduler {
         val intent = Intent(context, ClassNowWidgetReceiver::class.java).apply {
             action = ACTION_UPDATE_TIMETABLE
         }
-        val pendingIntent = PendingIntent.getBroadcast(
+
+        val boundaryPendingIntent = PendingIntent.getBroadcast(
             context,
-            REQUEST_CODE,
+            REQUEST_CODE_BOUNDARY,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        alarmManager.cancel(pendingIntent)
+        alarmManager.cancel(boundaryPendingIntent)
+
+        val progressPendingIntent = PendingIntent.getBroadcast(
+            context,
+            REQUEST_CODE_PROGRESS,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        alarmManager.cancel(progressPendingIntent)
     }
 }

@@ -26,6 +26,7 @@ class ClassNowWidgetReceiver : GlanceAppWidgetReceiver() {
         const val ACTION_TOGGLE_SMART_SILENT = "com.teju.classnow.action.TOGGLE_SMART_SILENT"
 
         private val toggleMutex = Mutex()
+        private val refreshMutex = Mutex()
 
         fun showToast(context: Context, message: String, length: Int = Toast.LENGTH_SHORT) {
             Handler(Looper.getMainLooper()).post {
@@ -100,8 +101,13 @@ class ClassNowWidgetReceiver : GlanceAppWidgetReceiver() {
                 val pendingResult = goAsync()
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
-                        WidgetUpdateHelper.triggerUpdate(context)
-                        showToast(context, "Timetable refreshed")
+                        refreshMutex.withLock {
+                            WidgetUpdateHelper.triggerUpdate(context)
+                            showToast(context, "Timetable refreshed")
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        showToast(context, "Failed to refresh widget")
                     } finally {
                         try {
                             pendingResult.finish()
@@ -132,6 +138,7 @@ class ClassNowWidgetReceiver : GlanceAppWidgetReceiver() {
             "android.intent.action.TIME_SET",
             Intent.ACTION_TIMEZONE_CHANGED,
             Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_USER_PRESENT,
             "android.appwidget.action.APPWIDGET_UPDATE" -> {
                 val pendingResult = goAsync()
                 CoroutineScope(Dispatchers.IO).launch {

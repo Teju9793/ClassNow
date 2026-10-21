@@ -56,14 +56,41 @@
   - Added comprehensive regression test suite (`AppWidgetSynchronizationRegressionTest.kt`) covering boundary conditions, gap categorization, single-class emptiness, theme resolution, and CSV replacement.
   - Verified 57/57 unit tests passing (`BUILD SUCCESSFUL`) and debug APK assembled (`BUILD SUCCESSFUL`).
 
+- [x] **Widget Redesign, Settings, Privacy, Help Desk & Developer Profile:**
+  - Redesigned default 4×2 Glance widget (`MediumLayout`): displays ClassNow branding, last-updated time, Smart Silent toggle with DND permission indicator (`NO DND` / `ON` / `OFF`), refresh button, Card 1 (Current Class with start/end time, progress bar, % remaining, or Break/Lunch/No-class status), and Card 2 (Next Class with subject, start/end time, and countdown).
+  - Built dedicated `SettingsScreen.kt` categorized into: Appearance (Theme picker), Home Screen Widget guidance, Timetable & Data, Smart Silent Mode & Permissions readiness, Support & Privacy, and About.
+  - Built dedicated `PrivacyPolicyScreen.kt`: transparent, verified 100% offline disclosure, zero network usage, permissions explanation, data ownership, and developer contact.
+  - Built dedicated `HelpDeskScreen.kt`: searchable/expandable FAQ accordion covering timetable CRUD, widget refresh, engine status detection, CSV import/export, and manufacturer battery optimization (Xiaomi MIUI/HyperOS, Samsung). Added direct email intent action to `tteju97933@gmail.com`.
+  - Built dedicated `DeveloperProfileScreen.kt`: displays K. R. Tejas Kumar's real profile photo (`dev_profile.jpg`), truthful editable bio, direct email, LinkedIn, and Instagram actions.
+  - Built dedicated `AboutScreen.kt`: dynamic app versioning from `BuildConfig.VERSION_NAME` and `BuildConfig.VERSION_CODE`, app description, and open-source acknowledgements.
+  - Wired all screens into `MainActivity.kt` `NavHost` (`"home"`, `"timetable"`, `"settings"`, `"privacy_policy"`, `"help_desk"`, `"developer_profile"`, `"about_app"`).
+  - Added unit test suite `SettingsAndDeveloperProfileTest.kt` verifying developer info integrity and schedule transitions. 60/60 unit tests pass; `assembleDebug` builds cleanly.
+
+- [x] **Final Default Widget Layout and Form Validation Fix:**
+  - Standardized dual-card default home-screen widget layout (`MediumLayout` and `SmallLayout` in `ClassNowWidget.kt`) with Header, Card 1 (CURRENT CLASS / STATUS), and Card 2 (NEXT CLASS).
+  - Adjusted compact height cutoff in `WidgetRoot` from 95.dp to 80.dp so standard 2-row placements never collapse to single-row format.
+  - Implemented real-time countdowns (`calculateMinutesUntil`) for next class during active periods and non-class breaks.
+  - Implemented field-level validation UX in `AddEditClassDialog` (`TimetableScreen.kt`): inline error highlighting and warnings on `OutlinedTextField` and `TimeInputField`, auto-scroll & focus to invalid field, and real-time error clearing upon input correction.
+  - Added unit test suite `FormValidationAndWidgetDualCardTest.kt`. All unit tests passing (`testDebugUnitTest` SUCCESSFUL), and debug APK generated (`assembleDebug` SUCCESSFUL).
+
 ## In Progress / Next Steps
 - [ ] Physical device verification on Xiaomi phone (MIUI / HyperOS):
-  - Toggle Smart Silent Mode from app and inspect widget for immediate synchronization.
-  - Toggle from widget and verify toast and button states match identically.
-  - Tap repeatedly to verify serialized mutex protection and convergence.
-  - Edit/add timetable entry and verify prompt widget updates.
-  - Change theme mode (Light/Dark/System) and verify instantaneous widget recoloring.
-  - Inspect current-class highlight during and outside scheduled class hours.
+  - Place default widget on home screen: verify Header, CURRENT card, and NEXT card are both immediately visible without resizing.
+  - Verify CURRENT card accurately presents current class / break / lunch / before / after / off-day states.
+  - Verify NEXT card accurately displays next academic class, time range, and countdown; verify empty-state message when no more classes.
+  - Test Add/Edit Class form: submit with empty name -> verify inline error under Subject, auto-focus, and form remains open.
+  - Submit with invalid hour/minute or end time <= start time -> verify inline error under time fields and auto-scroll.
+  - Type valid input -> verify individual errors clear immediately.
+  - Save valid class -> verify save succeeds and widget updates promptly.
+- [x] **Class Save/Edit Consistency & Weekday Synchronization Fix:**
+  - Keyed `AddEditClassDialog` state variables and `M3TimePickerDialog` on `existingEntry` / `(initialHour, initialMinute)` to prevent stale Compose slot table and `rememberSaveable` state reuse across add/edit sessions.
+  - Added `viewModel.selectDay(day)` on save to switch immediately to the saved record's weekday tab.
+  - Added regression test suite `TimeSaveAndEditConsistencyTest.kt` verifying 09:00 PM–10:15 PM and 10:11 PM–10:12 PM roundtrips, ID/weekday preservation, and engine schedule refresh.
+- [x] **Home-Screen Widget Horizontal Dual-Card Unification Across All Wide Branches:**
+  - Root-caused why physical Xiaomi launcher rendered vertical layout: high-DPI scaling reported `height >= 270.dp` (or `height >= 170.dp`), triggering legacy `ExtraLargeLayout` ("ClassNow Dashboard" & "UPCOMING TODAY") and `LargeLayout`.
+  - Re-routed all wide sizes (`width >= 220.dp`) unconditionally to `HorizontalDualCardLayout` with side-by-side CURRENT CLASS and NEXT CLASS cards.
+  - Delegated `LargeLayout` and `ExtraLargeLayout` directly to `HorizontalDualCardLayout(isTall = true)`.
+  - Added regression tests in `WidgetLayoutSizingTest.kt` verifying all wide sizes choose horizontal dual-card layout and narrow widgets retain compact single-column fallback.
 
 ## Pending / Play Store Release Asset Checklist
 - [ ] Google Play Store listing assets:

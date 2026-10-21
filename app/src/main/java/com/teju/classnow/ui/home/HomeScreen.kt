@@ -42,22 +42,41 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     viewModel: TimetableViewModel,
     onManageTimetable: () -> Unit,
+    onOpenSettings: () -> Unit = {},
     initialShowPermissions: Boolean = false,
     onPermissionsHandled: () -> Unit = {}
 ) {
-    val scheduleState by viewModel.scheduleState.collectAsState()
-    val currentTime by viewModel.currentTime.collectAsState()
-    val isNotifyEnabled by viewModel.isLiveNotificationEnabled.collectAsState()
-    val isSmartSilentEnabled by viewModel.isSmartSilentModeEnabled.collectAsState()
-    val smartSilentTarget by viewModel.smartSilentTarget.collectAsState()
-    val manualOverridePeriod by viewModel.manualOverridePeriod.collectAsState()
-    val themeMode by viewModel.themeMode.collectAsState()
-    val hasSeenOnboarding by viewModel.hasSeenOnboarding.collectAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshCurrentTime()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val scheduleState by viewModel.scheduleState.collectAsStateWithLifecycle()
+    val currentTime by viewModel.currentTime.collectAsStateWithLifecycle()
+    val isNotifyEnabled by viewModel.isLiveNotificationEnabled.collectAsStateWithLifecycle()
+    val isSmartSilentEnabled by viewModel.isSmartSilentModeEnabled.collectAsStateWithLifecycle()
+    val smartSilentTarget by viewModel.smartSilentTarget.collectAsStateWithLifecycle()
+    val manualOverridePeriod by viewModel.manualOverridePeriod.collectAsStateWithLifecycle()
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val hasSeenOnboarding by viewModel.hasSeenOnboarding.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -137,7 +156,7 @@ fun HomeScreen(
                         )
                     }
 
-                    IconButton(onClick = { showSettingsDialog = true }) {
+                    IconButton(onClick = onOpenSettings) {
                         Icon(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "Settings",

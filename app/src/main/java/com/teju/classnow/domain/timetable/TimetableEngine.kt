@@ -59,6 +59,7 @@ object TimetableEngine {
         if (entries.isEmpty()) {
             return ScheduleState(
                 status = TimetableStatus.NO_CLASSES_TODAY,
+                nextTransitionLocalTime = LocalTime.MIDNIGHT.plusMinutes(1),
                 silentModeAction = SilentModeAction.IGNORE,
                 statusSummary = "No Classes Scheduled Today",
                 timeSummary = "Enjoy your day off"
@@ -77,6 +78,7 @@ object TimetableEngine {
         if (sortedEntries.isEmpty()) {
             return ScheduleState(
                 status = TimetableStatus.NO_CLASSES_TODAY,
+                nextTransitionLocalTime = LocalTime.MIDNIGHT.plusMinutes(1),
                 silentModeAction = SilentModeAction.IGNORE,
                 statusSummary = "No Valid Classes",
                 timeSummary = "Check timetable configuration"

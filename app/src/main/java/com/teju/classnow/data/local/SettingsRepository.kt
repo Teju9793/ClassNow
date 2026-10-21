@@ -23,6 +23,7 @@ class SettingsRepository(context: Context) {
         val MANUAL_OVERRIDE_PERIOD = androidx.datastore.preferences.core.stringPreferencesKey("manual_override_period")
         val THEME_MODE = androidx.datastore.preferences.core.stringPreferencesKey("theme_mode") // "SYSTEM", "LIGHT", "DARK"
         val HAS_SEEN_ONBOARDING = booleanPreferencesKey("has_seen_onboarding")
+        val WIDGET_REFRESH_TRIGGER = androidx.datastore.preferences.core.longPreferencesKey("widget_refresh_trigger")
     }
 
     val isLiveNotificationEnabled: Flow<Boolean> = appContext.dataStore.data
@@ -48,6 +49,15 @@ class SettingsRepository(context: Context) {
 
     val hasSeenOnboarding: Flow<Boolean> = appContext.dataStore.data
         .map { preferences -> preferences[HAS_SEEN_ONBOARDING] ?: false }
+
+    val widgetRefreshTrigger: Flow<Long> = appContext.dataStore.data
+        .map { preferences -> preferences[WIDGET_REFRESH_TRIGGER] ?: 0L }
+
+    suspend fun notifyWidgetRefresh() {
+        appContext.dataStore.edit { preferences ->
+            preferences[WIDGET_REFRESH_TRIGGER] = System.currentTimeMillis()
+        }
+    }
 
     suspend fun setLiveNotificationEnabled(enabled: Boolean) {
         appContext.dataStore.edit { preferences ->

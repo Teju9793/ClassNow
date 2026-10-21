@@ -21,6 +21,12 @@ import com.teju.classnow.ui.theme.ClassNowTheme
 import com.teju.classnow.ui.timetable.TimetableScreen
 import com.teju.classnow.ui.viewmodel.TimetableViewModel
 
+import com.teju.classnow.ui.settings.AboutScreen
+import com.teju.classnow.ui.settings.DeveloperProfileScreen
+import com.teju.classnow.ui.settings.HelpDeskScreen
+import com.teju.classnow.ui.settings.PrivacyPolicyScreen
+import com.teju.classnow.ui.settings.SettingsScreen
+
 class MainActivity : ComponentActivity() {
     private var navigateToState by mutableStateOf<String?>(null)
 
@@ -55,6 +61,7 @@ class MainActivity : ComponentActivity() {
                         HomeScreen(
                             viewModel = viewModel,
                             onManageTimetable = { navController.navigate("timetable") },
+                            onOpenSettings = { navController.navigate("settings") },
                             initialShowPermissions = openPermissionsFromWidget,
                             onPermissionsHandled = { openPermissionsFromWidget = false }
                         )
@@ -62,6 +69,37 @@ class MainActivity : ComponentActivity() {
                     composable("timetable") {
                         TimetableScreen(
                             viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable("settings") {
+                        SettingsScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() },
+                            onNavigatePrivacyPolicy = { navController.navigate("privacy_policy") },
+                            onNavigateHelpDesk = { navController.navigate("help_desk") },
+                            onNavigateDeveloperProfile = { navController.navigate("developer_profile") },
+                            onNavigateAbout = { navController.navigate("about_app") },
+                            onNavigateManageTimetable = { navController.navigate("timetable") }
+                        )
+                    }
+                    composable("privacy_policy") {
+                        PrivacyPolicyScreen(
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable("help_desk") {
+                        HelpDeskScreen(
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable("developer_profile") {
+                        DeveloperProfileScreen(
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable("about_app") {
+                        AboutScreen(
                             onBack = { navController.popBackStack() }
                         )
                     }

@@ -131,3 +131,162 @@
    - `.\gradlew test --no-daemon`: PASS.
    - `.\gradlew assembleDebug --no-daemon`: PASS.
    - `.\gradlew assembleRelease --no-daemon`: PASS.
+
+---
+
+# 2026-10-21 — Safe Battery Optimization (Targeted Changes Only)
+
+## Priority 1: Separate Widget Refreshes from Timetable Transitions
+- **`WidgetAlarmScheduler.kt`**:
+  - Separated critical timetable state transitions (`REQUEST_CODE_BOUNDARY = 4412`) from visual-only progress updates (`REQUEST_CODE_PROGRESS = 4413`).
+  - Essential boundary transitions (class start, class end, break transitions, midnight reset) strictly preserve exact waking alarms (`AlarmManager.RTC_WAKEUP` + `setExactAndAllowWhileIdle`) required for timely Smart Silent Mode automation and status changes.
+  - Intermediate visual progress updates during an ongoing class now use non-waking `AlarmManager.RTC` (spaced at 5-minute intervals, active only when >5 minutes remain in the class). Non-waking alarms never wake the AP or break the device out of Android Doze deep sleep while the phone is locked.
+  - `cancelAllAlarms()` cleans up both boundary and progress alarms.
+- **`ClassNowWidgetReceiver.kt` & `AndroidManifest.xml`**:
+  - Registered `ACTION_USER_PRESENT` broadcast receiver so the widget immediately and event-drivingly refreshes to the exact current minute as soon as the user unlocks their phone, guaranteeing fresh visuals without background wakeups while the screen is off.
+
+## Priority 2: Remove Unnecessary One-Second Polling
+- **`TimetableViewModel.kt`**:
+  - Replaced the continuous 1-second clock loop (`delay(1000)`) with a minute-boundary tick loop (`delay(millisUntilNextMinute)`).
+  - Switched `scheduleState` StateFlow from `SharingStarted.Eagerly` to `SharingStarted.WhileSubscribed(stopTimeoutMillis = 5000)`. When the user navigates away or puts the app into the background, the schedule computation flow stops after 5 seconds instead of running indefinitely.
+  - Added `refreshCurrentTime()` to instantly synchronize the clock upon returning to the foreground.
+- **`HomeScreen.kt` & `TimetableScreen.kt`**:
+  - Replaced eager `collectAsState()` with `collectAsStateWithLifecycle()` from `androidx.lifecycle:lifecycle-runtime-compose`.
+  - Added `LifecycleEventObserver` listening for `Lifecycle.Event.ON_RESUME` to call `viewModel.refreshCurrentTime()`, ensuring immediate accuracy without wait when returning from lock or another app.
+
+## Priority 3: Widget Data Access & Jetpack Glance Session Reactivity
+- **`ClassNowWidget.kt`**:
+  - Restored reactive `collectAsState` inside `provideContent` for DataStore settings (`isSmartSilentModeEnabled`, `manualOverridePeriod`, `themeMode`) and Room database (`entries`).
+  - Pre-seeded `collectAsState(initial = ...)` with `first()` in `provideGlance` for instantaneous zero-flicker cold starts.
+  - Removed stale `remember(entries, isSmartSilentEnabled, manualOverridePeriod)` and `remember(scheduleState)` caching blocks that previously caused the widget to display stale "All Done For Today" and frozen last-updated timestamps across widget updates and Smart Silent Mode toggles.
+  - Eliminated stale date retention by evaluating `currentDay` dynamically on every composition pass.
+- **`WidgetUpdateHelper.kt`**:
+  - Strengthened `updateGlanceWidgets(context)` to ensure all active widget instances receive update signals synchronously with fallback coverage.
+
+## Verification Results
+- **Unit Tests (`testDebugUnitTest`)**: `BUILD SUCCESSFUL` (68/68 passing, 0 failures).
+- **Debug Build (`assembleDebug`)**: `BUILD SUCCESSFUL` (`app-debug.apk` generated).
+- **Regression Suite**: Tested exact boundaries, lunch and breaks, before/after class states, minute monotonicity, alarm separation request codes, Smart Silent Mode OFF->ON / ON->OFF toggles, Theme mode color switches, and timetable mutations.
+
+---
+
+# 2026-10-21 — Final Widget Update Speed, Refresh Button & Default Layout Fix
+
+## 1. Confirmed Root Cause of Delayed Schedule Updates & Stale Time
+- **Issue:** The widget occasionally failed to update at class boundaries (e.g. short 2-minute test entry `ff` at 5:20–5:22 PM) or on Refresh button press.
+- **Root Cause:** Jetpack Glance Compose sessions only recompose when an observed `State<T>` changes value. In earlier code, `currentTime = LocalTime.now()` was called inside `provideContent`, but `LocalTime.now()` is a system call, not a Compose `State`. If the timetable entries, Smart Silent toggle, or theme mode didn't change at 5:20 or 5:22, Compose skipped recomposition because none of its observed states changed!
+- **Alarm Latency Bug:** In `WidgetAlarmScheduler.calculateEpochMillis`, if the receiver ran a few milliseconds past the exact boundary (e.g. `17:22:00.050`), `!targetDateTime.isAfter(now)` was false, causing the alarm to be pushed 24 hours into the future (`targetDateTime.plusDays(1)`) instead of firing immediately.
+
+## 2. Complete Fix Applied
+- **Authoritative Refresh Trigger (`WIDGET_REFRESH_TRIGGER`):**
+  - Added `WIDGET_REFRESH_TRIGGER` DataStore key and `settingsRepository.notifyWidgetRefresh()` in `SettingsRepository.kt`.
+  - In `WidgetUpdateHelper.triggerUpdate` and `updateWidgetUiOnly`, `settingsRepository.notifyWidgetRefresh()` is invoked whenever an alarm fires, the user taps Refresh, the user toggles Smart Silent, or the timetable is edited.
+  - In `ClassNowWidget.provideContent`, `val refreshTrigger by settings.widgetRefreshTrigger.collectAsState()` is observed. This guarantees that Compose immediately recomposes whenever an update event occurs.
+- **Boundary Execution Latency Fix in `WidgetAlarmScheduler.kt`:**
+  - In `calculateEpochMillis`, if the target time is within 60 seconds in the past due to boundary execution latency, it triggers immediately (`System.currentTimeMillis() + 100L`) rather than jumping 24 hours to tomorrow.
+- **Midnight Transition on No-Class Days in `TimetableEngine.kt`:**
+  - `NO_CLASSES_TODAY` now schedules `nextTransitionLocalTime = LocalTime.MIDNIGHT.plusMinutes(1)` so the widget automatically transitions when tomorrow begins.
+- **Concurrently-Safe Widget Refresh Button:**
+  - Added `refreshMutex` in `ClassNowWidgetReceiver.kt` to serialize rapid multi-taps and prevent redundant Room reads.
+  - Added user-facing error feedback toast if a refresh fails.
+- **Default 2x2 Small Widget Size Redesign:**
+  - Updated `SmallLayout` in `ClassNowWidget.kt` to show **both Card 1 (CURRENT CLASS / STATUS)** and **Card 2 (NEXT CLASS)** with subject, start/end time, countdown, and progress bar without requiring manual widget expansion.
+
+## Phase 14: Final Default Widget Layout and Form Validation Fix
+- **Part A: Default Home-Screen Widget Layout (Dual Cards without Expansion):**
+  - Updated `WidgetRoot` in `ClassNowWidget.kt`: adjusted compact height cutoff from 95.dp to 80.dp so standard 2-row default launcher sizes (typically 90-120dp) always enter dual-card layouts (`SmallLayout` or `MediumLayout`).
+  - Implemented `calculateMinutesUntil(timeStr)` to provide exact, truthful countdowns for the next class during active classes (`" • in Xm"`) as well as breaks, lunch, and before classes.
+  - Enhanced Card 1 (CURRENT / ACTIVE) across all states:
+    - `CURRENT_CLASS`: Subject, time range, progress bar, percentage, and time remaining.
+    - `BREAK`, `LUNCH`, `FREE_PERIOD`: Status title, next class start time, progress bar, percentage, and countdown.
+    - `BEFORE_CLASSES`: College Schedule header, "Before College Hours", countdown to first class.
+    - `NO_MORE_CLASSES`: "All Done For Today", "Have a great evening! See you tomorrow."
+    - `NO_CLASSES_TODAY`: "No Classes Today", "Enjoy your day off • Tap to add classes".
+  - Enhanced Card 2 (NEXT CLASS):
+    - Shows next actual academic class, formatted time span, and real-time countdown.
+    - Never left visually empty: displays clear, helpful empty-state messages ("Last class of the day • Done after this", "Done for today • See you tomorrow", "No classes scheduled today").
+  - Preserved battery optimizations (event-driven refreshes, zero waking alarms for progress), exact-alarm handling, and Smart Silent Mode toggle.
+
+- **Part B: Add/Edit Class Form Validation UX:**
+  - Upgraded `TimeInputField` in `TimetableScreen.kt` to accept `isError: Boolean` and `errorMessage: String?`. When invalid, highlights hour and minute input fields in theme error color and displays an inline warning row with an error icon and descriptive message directly under the time controls.
+  - Upgraded `OutlinedTextField` for subject in `AddEditClassDialog` with `isError`, error `supportingText`, error `trailingIcon`, and `FocusRequester`.
+  - Added comprehensive field-level validation on Save click:
+    - Subject blank check (`subject.trim().isBlank()`) -> marks subject field in error, scrolls to top, and requests focus.
+    - Start time check -> validates 1-12 hour, 00-59 minute, and 12-to-24 hour conversion.
+    - End time check -> validates 1-12 hour, 00-59 minute.
+    - End time after start time check (`!endL.isAfter(startL)`) -> sets inline error on end time field and scrolls into view.
+    - Overlap/conflict check with existing classes on the selected day -> displays inline conflict error.
+    - Custom sound intervals check -> validates interval boundaries and sequence.
+  - Implemented automatic error clearing: individual errors clear immediately as soon as the user corrects the field.
+  - Form remains open with user-entered values intact on validation failure.
+
+- **Automated Verification:**
+  - Added `FormValidationAndWidgetDualCardTest.kt` verifying all validation branches and widget current/next dual-card states.
+  - Updated `WidgetLayoutSizingTest.kt` for the 80.dp compact cutoff.
+  - `.\gradlew.bat testDebugUnitTest --no-daemon`: **BUILD SUCCESSFUL** (All unit tests passing).
+  - `.\gradlew.bat assembleDebug --no-daemon`: **BUILD SUCCESSFUL**.
+  - Generated APK: `app/build/outputs/apk/debug/app-debug.apk`.
+
+### Class Save/Edit Consistency & Weekday Synchronization Fix (October 2026)
+
+- **Root Causes Diagnosed:**
+  1. **Unkeyed Compose State in `AddEditClassDialog`:**
+     - State variables (`startHour`, `startMinute`, `startIsPm`, `endHour`, `endMinute`, `endIsPm`, `subject`, `faculty`, `dayChoice`, `silentRule`) used `remember { mutableStateOf(...) }` without keys.
+     - When editing an existing entry or transitioning from another dialog session, Compose retained the previous state in its slot table instead of resetting to the entry's actual stored values.
+  2. **Unkeyed `rememberTimePickerState` in `M3TimePickerDialog`:**
+     - `rememberTimePickerState` uses `rememberSaveable` internally. When opening pickers across fields or dialogs, the previously saved clock position was restored rather than initializing with the target field's time.
+  3. **Missing Weekday Tab Synchronization on Save:**
+     - When saving an entry with a weekday different from the currently selected tab, `viewModel.selectDay(day)` was not called. The user remained on the previous weekday tab where the newly saved or edited entry was not scheduled, giving the impression that the record was lost or not saved.
+  4. **Move Up / Down Time Swapping in `TimetableViewModel`:**
+     - `moveEntryUp` and `moveEntryDown` swapped `startTime` and `endTime` between adjacent entries, which altered class times whenever list reordering was triggered.
+
+- **Changes Implemented:**
+  - `TimetableScreen.kt`:
+    - Keyed all state variables in `AddEditClassDialog` with `remember(existingEntry)`.
+    - Wrapped `AddEditClassDialog` in `key(entry.id)` at the edit call site.
+    - Wrapped `rememberTimePickerState` in `key(initialHour, initialMinute)` inside `M3TimePickerDialog`.
+    - Added `viewModel.selectDay(day)` to both `addEntry` and `updateEntry` save handlers in `TimetableScreen.kt` so the UI switches immediately to the saved class's day tab.
+  - `TimeSaveAndEditConsistencyTest.kt`:
+    - Added comprehensive regression tests covering saving 09:00 PM – 10:15 PM, 10:11 PM – 10:12 PM, roundtrip 12h/24h AM/PM conversions, preserving entry ID on edit, end-time validation, and TimetableEngine schedule state refreshes upon updating class times.
+
+- **Automated Verification:**
+  - `.\gradlew.bat testDebugUnitTest --no-daemon`: **BUILD SUCCESSFUL** (All unit tests passing).
+  - `.\gradlew.bat assembleDebug --no-daemon`: **BUILD SUCCESSFUL**.
+  - Generated APK: `app/build/outputs/apk/debug/app-debug.apk`.
+
+### Home-Screen Widget Horizontal Dual-Card Unification Across All Wide Branches (October 2026)
+
+- **Root Cause Diagnosed:**
+  - In `ClassNowWidget.kt`, the size decision branch in `WidgetRoot`:
+    ```kotlin
+    when {
+        height < 55.dp -> CompactLayout(...)
+        width < 220.dp -> SmallLayout(...)
+        height < 170.dp -> MediumLayout(...)   // Horizontal dual-card
+        height < 270.dp -> LargeLayout(...)    // Legacy vertical layout
+        else -> ExtraLargeLayout(...)          // Legacy vertical layout with "ClassNow Dashboard" & "UPCOMING TODAY"
+    }
+    ```
+  - On the user's physical Xiaomi HyperOS launcher, high-DPI scaling caused the 4x2 / wide launcher bounds to report `height >= 270.dp` (or `height >= 170.dp`).
+  - This bypassed `MediumLayout` and triggered the legacy `ExtraLargeLayout` (or `LargeLayout`), which rendered:
+    1. Header: "ClassNow Dashboard"
+    2. Full-width CURRENT CLASS card
+    3. Vertical "UPCOMING TODAY" schedule section below it
+    4. Substantial blank unused space at the bottom.
+
+- **Changes Implemented:**
+  - `ClassNowWidget.kt`:
+    - Updated `WidgetRoot` size resolution so that **ALL** wide widgets (`width >= 220.dp`) regardless of reported height directly invoke `HorizontalDualCardLayout`.
+    - Added responsive height adaptation (`isTall = height >= 170.dp`) within `HorizontalDualCardLayout` to scale padding, font sizes (13-14sp), and touch targets gracefully without switching to a vertical stack.
+    - Completely replaced the legacy vertical implementations of `LargeLayout` and `ExtraLargeLayout` so they delegate directly to `HorizontalDualCardLayout(isTall = true)`.
+    - Completely eliminated the "ClassNow Dashboard" header and the legacy vertical "UPCOMING TODAY" section.
+    - Ensured `CurrentClassHorizontalCard` (left) and `NextClassHorizontalCard` (right) are placed side-by-side in a Glance `Row` with equal 50/50 weights (`GlanceModifier.defaultWeight()`).
+    - Added debug logging in `WidgetRoot` (`Log.d("ClassNowWidget", ...)`) to record exact reported launcher dimensions and the selected layout branch.
+  - `WidgetLayoutSizingTest.kt`:
+    - Added comprehensive regression tests confirming that wide widths (from 75dp compact to 450dp tall) always resolve to the horizontal dual-card layout, narrow widths (< 220dp) use the deliberate single-column fallback, and empty next-class states render inside the right card.
+
+- **Automated Verification:**
+  - `.\gradlew.bat testDebugUnitTest --no-daemon`: **BUILD SUCCESSFUL in 1m 12s** (All unit tests passing).
+  - `.\gradlew.bat assembleDebug --no-daemon`: **BUILD SUCCESSFUL in 38s**.
+  - Generated APK: `app/build/outputs/apk/debug/app-debug.apk`.
+
