@@ -1,0 +1,76 @@
+# TODO
+
+## Completed
+- [x] Project setup & configuration inspection (pinned JDK 21 in `gradle.properties`)
+- [x] Diagnosis of widget stale progress bar bug (fixed via intermediate progress checkpoints + native Glance `LinearProgressIndicator`)
+- [x] Establishment of single-source-of-truth timetable engine (`TimetableEngine`)
+- [x] Implementation of Smart Silent Mode automation (`SmartSilentManager`)
+- [x] Database v2 migration (`MIGRATION_1_2`) supporting per-class sound rules
+- [x] Premium app UI/UX redesign (Adaptive Light/Dark/System theme, restrained Aqua/Cyan palette)
+- [x] Responsive 5-size Glance widget system (Compact, Small, Medium, Large, Extra-Large)
+- [x] App & widget theme synchronization (`WidgetTheme`, `WidgetColors`, `updateWidgetUiOnly`)
+- [x] **Phase 1 Fix:** Removed background execution / battery-saver requirement from `PermissionsReadinessDialog`. Kept genuine permissions: DND Access, Exact Alarms, Notifications.
+- [x] **Phase 2 Fix:** Fixed home screen widget Silent Mode and Refresh buttons:
+  - Removed root Box click handler that swallowed child button clicks on OEM launchers (Xiaomi HyperOS/MIUI).
+  - Switched from reflection-based `actionRunCallback` to explicit `actionSendBroadcast` directly to `ClassNowWidgetReceiver`.
+  - Added ProGuard/R8 keep rules for Glance action callbacks and widget receiver.
+  - Removed emojis from buttons (`🔕`, `🔔`), replaced with clean vector drawables (`ic_volume_off`, `ic_volume_up`, `ic_refresh`).
+  - Added modern rounded styling (`cornerRadius(12.dp)`) with clear state labels (`Smart Silent: ON` / `OFF`).
+- [x] **Phase 3 Fix:** Configured practical widget sizes in `classnow_widget_info.xml` (`minWidth="180dp"`, `minHeight="110dp"`, `minResizeWidth="110dp"`, `minResizeHeight="40dp"`, `targetCellWidth="4"`, `targetCellHeight="2"`). Verified responsive layouts across Compact, Small, Medium, Large, and Extra-Large.
+- [x] **Phase 4 Redesign:** Redesigned Manage Timetable entries in `TimetableScreen.kt` from nested gray cards into a single cohesive Material 3 surface with active accent bar, 12-hour AM/PM time display, subtle rule pills, and 48x48dp overflow touch targets.
+- [x] **Phase 5 Feature:** Implemented manual 12-hour time entry with AM/PM selector and clock picker dialog (`TimeInputField`, `TimeInputHelper`). Full noon (12:00 PM), midnight (12:00 AM), and 24-hour roundtrip conversion unit tests.
+- [x] **V2 Fix 1 (Feature Readiness Dialog Loop):** Resolved startup flicker where DataStore initially emitted `false` for `hasSeenOnboarding`. Changed initial state to `null`, checked granted permissions (`hasDndPermission && hasExactAlarmPermission && hasNotificationPermission`), auto-marked seen if all granted to prevent dialog re-opening on every launch. Manual access from Settings remains fully intact.
+- [x] **V2 Fix 2 (Widget Responsiveness & Instant Feedback):** Added foreground flags (`Intent.FLAG_RECEIVER_FOREGROUND`) and explicit package to widget broadcasts. Added instant Toast feedback ("Timetable refreshed", "Smart Silent Mode: ON/OFF") and visible `lastUpdatedTime` ("Updated: hh:mm a") to all widget layout sizes (Compact, Small, Medium, Large, ExtraLarge). Enforced 48dp minimum touch targets.
+- [x] **V2 Fix 3 (Timetable Time Display & Conversion):** Changed time formatting to two-digit hour format (`hh:mm a`, e.g. `07:15 AM – 07:16 AM`). Upgraded time input with forgiving 24-hour normalization (converting hours 13-23 to PM automatically) and high-contrast Material 3 `FilterChip` buttons for AM/PM selection with 40-48dp touch targets.
+- [x] **V2 Feature 4 (Custom Smart Silent Schedule):**
+  - Designed `CustomSoundInterval` and `CustomClassSchedule` models supporting multiple intervals inside a class (`SILENT` / `NORMAL`) and end-of-class actions (`DEFAULT`, `FORCE_NORMAL`, `KEEP_AS_IS`).
+  - Added Room database migration `MIGRATION_2_3` (version 2 -> 3) adding `customSilentSchedule TEXT` column to `timetable_entries` without data loss.
+  - Implemented interval schedule builder UI in `AddEditClassDialog` with validation and visual badges on `TimetableEntryCard`.
+  - Integrated custom interval resolution and boundary alarm scheduling in `TimetableEngine`.
+- [x] **V2.1 Master Upgrade — Phase 1 (Manual Time Input & Picker):**
+  - Removed eager normalization on keystrokes (`normalizeHour` on `onValueChange`). Raw numeric typing up to 2 digits is preserved without interfering with backspace or partial edits.
+  - Added blur normalization (`onFocusChanged`) and save-time formatting (`to24Hour`), correctly handling 12 AM, 12 PM, 24-hr inputs, and zero-padding.
+  - Replaced clock icon with an accessible, high-contrast `FilledTonalIconButton` with 48×48dp touch target and 24dp Material schedule vector.
+  - Added interactive clock pickers for custom schedule intervals.
+- [x] **V2.1 Master Upgrade — Phase 2 (Instant Widget State Synchronization):**
+  - Root-caused delayed widget toggle on Xiaomi MIUI / HyperOS (early `pendingResult.finish()` causing process freezing before RemoteViews reach AppWidgetManager).
+  - Implemented centralized, mutex-protected `ClassNowWidgetReceiver.executeMasterToggle` pipeline.
+  - Synchronously executes Glance `update(appContext, glanceId)` for all active widgets before broadcast completion.
+  - Fixed DataStore context usage by anchoring `SettingsRepository` to `context.applicationContext`.
+- [x] **V2.1 Master Upgrade — Phase 3 (Immediate Widget Theme Synchronization):**
+  - Implemented synchronous UI updates across all active widgets in `WidgetUpdateHelper.updateGlanceWidgets` upon theme mode change in `TimetableViewModel`.
+- [x] **V2.1 Master Upgrade — Phase 4 (True System Wallpaper-Based Dynamic Theming):**
+  - Integrated `dynamicDarkColorScheme(context)` and `dynamicLightColorScheme(context)` on Android 12+ (API 31+) in `SYSTEM` mode for both in-app `ClassNowTheme` and Glance `WidgetTheme`.
+  - Elegant fallback to curated Slate-Navy and Clean-Light palettes for API < 31 or explicit Light/Dark choices.
+- [x] **V2.1 Master Upgrade — Phase 5 (Custom Sound Schedule Discoverability & Smooth Animation):**
+  - Added `AnimatedVisibility` (250ms vertical expand/fade) and `scrollState.animateScrollTo(scrollState.maxValue)` upon enabling Custom Sound Schedule.
+  - Clear section header, interval counter badge, interactive clock pickers for each interval, and end action choices.
+- [x] **V2.1 Master Upgrade — Phase 6-7 (Testing & Build Verification):**
+  - 49 unit tests passing (100%), debug APK assembled successfully (`BUILD SUCCESSFUL`).
+- [x] **P0 Master Fix (App–Widget Synchronization, Theme Propagation, and Current-Class Highlighting):**
+  - Resolved widget ON/OFF button vs toast contradiction: eliminated stale variable closures in Glance by collecting DataStore & Room flows directly inside `provideContent { ... }` (`settings.isSmartSilentModeEnabled`, `settings.manualOverridePeriod`, `settings.themeMode`, `dao.getEntriesForDay(currentDay)`).
+  - Streamlined `ClassNowWidgetReceiver.executeMasterToggle`: removed duplicate concurrent Glance invocations, added robust `try-catch` error handling with truthful feedback.
+  - Instant theme propagation: widget reacts immediately to in-app theme changes (LIGHT, DARK, SYSTEM with API 31+ dynamic wallpaper colors) via reactive Flow collection.
+  - Restored current-class highlighting in `TimetableScreen.kt` using shared domain `ScheduleState` (`TimetableEngine.getScheduleState`), high-contrast `primaryContainer.copy(alpha = 0.70f)` surface, 2dp solid primary border, 6dp accent strip, and "HAPPENING NOW" pill badge.
+  - Polished widget layouts: added next class hint to Medium (4x2) layout and countdown minutes to Large (4x3) layout.
+  - Added comprehensive regression test suite (`AppWidgetSynchronizationRegressionTest.kt`) covering boundary conditions, gap categorization, single-class emptiness, theme resolution, and CSV replacement.
+  - Verified 57/57 unit tests passing (`BUILD SUCCESSFUL`) and debug APK assembled (`BUILD SUCCESSFUL`).
+
+## In Progress / Next Steps
+- [ ] Physical device verification on Xiaomi phone (MIUI / HyperOS):
+  - Toggle Smart Silent Mode from app and inspect widget for immediate synchronization.
+  - Toggle from widget and verify toast and button states match identically.
+  - Tap repeatedly to verify serialized mutex protection and convergence.
+  - Edit/add timetable entry and verify prompt widget updates.
+  - Change theme mode (Light/Dark/System) and verify instantaneous widget recoloring.
+  - Inspect current-class highlight during and outside scheduled class hours.
+
+## Pending / Play Store Release Asset Checklist
+- [ ] Google Play Store listing assets:
+  - App Name (ClassNow)
+  - Short description & Full description
+  - High-res App icon (512x512 PNG)
+  - Feature graphic (1024x500 JPEG or 24-bit PNG)
+  - Phone and tablet screenshots
+  - Privacy Policy URL / data safety declarations
+  - Category (Education / Productivity)
